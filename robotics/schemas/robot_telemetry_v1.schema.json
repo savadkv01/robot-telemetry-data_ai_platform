@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "robot.telemetry.v1",
+  "title": "RobotTelemetryEventV1",
+  "type": "object",
+  "required": ["robot_id", "event_time", "source_topic", "payload"],
+  "properties": {
+    "robot_id": {
+      "type": "string"
+    },
+    "event_time": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "source_topic": {
+      "type": "string",
+      "enum": ["/imu", "/odom", "/battery_state", "/scan"]
+    },
+    "payload": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "ax": {"type": "number"},
+        "ay": {"type": "number"},
+        "az": {"type": "number"},
+        "gx": {"type": "number"},
+        "gy": {"type": "number"},
+        "gz": {"type": "number"},
+
+        "x": {"type": "number"},
+        "y": {"type": "number"},
+        "z": {"type": "number"},
+        "vx": {"type": "number"},
+        "vy": {"type": "number"},
+        "vz": {"type": "number"},
+
+        "percentage": {"type": "number"},
+        "voltage": {"type": "number"},
+        "current": {"type": "number"},
+
+        "ranges_count": {"type": "number"},
+        "min_distance": {"type": ["number", "null"]},
+        "max_distance": {"type": ["number", "null"]}
+      }
+    }
+  }
+}

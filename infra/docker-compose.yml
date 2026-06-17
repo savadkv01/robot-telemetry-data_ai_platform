@@ -1,0 +1,230 @@
+version: "3.9"
+
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.3
+    container_name: zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+
+  kafka:
+    image: confluentinc/cp-kafka:7.5.3
+    container_name: kafka
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+      - "29092:29092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_INTERNAL:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092,PLAINTEXT_INTERNAL://kafka:29092
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT_INTERNAL
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+
+  minio:
+    image: minio/minio:RELEASE.2025-01-20T14-49-07Z
+    container_name: minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+
+  postgres:
+    image: postgres:16
+    container_name: postgres
+    environment:
+      POSTGRES_USER: robot
+      POSTGRES_PASSWORD: robot
+      POSTGRES_DB: robot_ops
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - postgres_data:/var/lib/postgresql/data
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    container_name: prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.enable-lifecycle"
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+
+  grafana:
+    image: grafana/grafana:11.1.4
+    container_name: grafana
+    depends_on:
+      - prometheus
+      - postgres
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_DEFAULT_THEME: light
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+
+  kafka-exporter:
+    image: danielqsj/kafka-exporter:v1.7.0
+    container_name: kafka-exporter
+    command:
+      - "--kafka.server=kafka:29092"
+    ports:
+      - "9308:9308"
+    depends_on:
+      kafka:
+        condition: service_healthy
+    restart: on-failure
+
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.15.0
+    container_name: postgres-exporter
+    environment:
+      DATA_SOURCE_NAME: postgresql://robot:robot@postgres:5432/robot_ops?sslmode=disable
+    ports:
+      - "9187:9187"
+    depends_on:
+      - postgres
+
+  # ============================================================================
+  # Spark pipeline services  (profile: spark)
+  #
+  # Build image first:
+  #   docker compose --profile spark build
+  #
+  # Then run jobs in order:
+  #   docker compose --profile spark run --rm injector
+  #   docker compose --profile spark run --rm spark-streaming
+  #   docker compose --profile spark run --rm spark-batch
+  #   docker compose --profile spark run --rm duckdb-analytics
+  # ============================================================================
+
+  injector:
+    build:
+      context: ..
+      dockerfile: infra/spark/Dockerfile
+    image: robot-telemetry-spark:latest
+    container_name: injector
+    profiles: ["spark"]
+    working_dir: /app
+    command: python scripts/inject_telemetry.py
+    volumes:
+      - ..:/app
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      KAFKA_TELEMETRY_TOPIC: robot.telemetry.v1
+      EVENTS_PER_ROBOT_PER_DAY: "500"
+    depends_on:
+      kafka:
+        condition: service_healthy
+    restart: "no"
+
+  spark-streaming:
+    build:
+      context: ..
+      dockerfile: infra/spark/Dockerfile
+    image: robot-telemetry-spark:latest
+    container_name: spark-streaming
+    profiles: ["spark"]
+    working_dir: /app
+    command: ["spark-submit", "--master", "local[4]", "streaming/spark_streaming.py"]
+    volumes:
+      - ..:/app
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      KAFKA_TELEMETRY_TOPIC: robot.telemetry.v1
+      KAFKA_STARTING_OFFSETS: earliest
+      POSTGRES_URL: jdbc:postgresql://postgres:5432/robot_ops
+      POSTGRES_USER: robot
+      POSTGRES_PASSWORD: robot
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+      SPARK_TRIGGER_ONCE: "true"
+    depends_on:
+      kafka:
+        condition: service_healthy
+      postgres:
+        condition: service_started
+      minio:
+        condition: service_started
+    restart: "no"
+
+  spark-batch:
+    build:
+      context: ..
+      dockerfile: infra/spark/Dockerfile
+    image: robot-telemetry-spark:latest
+    container_name: spark-batch
+    profiles: ["spark"]
+    working_dir: /app
+    command: ["spark-submit", "--master", "local[4]", "streaming/spark_batch_daily.py"]
+    volumes:
+      - ..:/app
+    environment:
+      POSTGRES_URL: jdbc:postgresql://postgres:5432/robot_ops
+      POSTGRES_USER: robot
+      POSTGRES_PASSWORD: robot
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+
+    depends_on:
+      postgres:
+        condition: service_started
+      minio:
+        condition: service_started
+    restart: "no"
+
+  duckdb-analytics:
+    build:
+      context: ..
+      dockerfile: infra/spark/Dockerfile
+    image: robot-telemetry-spark:latest
+    container_name: duckdb-analytics
+    profiles: ["spark"]
+    working_dir: /app
+    command: python sql/analytics_duckdb.py
+    volumes:
+      - ..:/app
+    environment:
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+    depends_on:
+      minio:
+        condition: service_started
+    restart: "no"
+
+volumes:
+  minio_data:
+  postgres_data:
+  prometheus_data:
+  grafana_data:

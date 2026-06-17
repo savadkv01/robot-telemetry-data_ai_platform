@@ -1,0 +1,90 @@
+<?xml version="1.0"?>
+<robot name="telemetry_bot" xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <!-- Base body -->
+  <link name="base_link">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="8.0"/>
+      <inertia ixx="0.30" ixy="0.0" ixz="0.0" iyy="0.30" iyz="0.0" izz="0.30"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0.12" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.50 0.35 0.24"/>
+      </geometry>
+      <material name="blue">
+        <color rgba="0.2 0.4 0.8 1.0"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0.12" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.50 0.35 0.24"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <!-- LiDAR mount -->
+  <link name="laser_link"/>
+  <joint name="laser_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="laser_link"/>
+    <origin xyz="0.20 0.0 0.22" rpy="0 0 0"/>
+  </joint>
+
+  <!-- IMU publisher -->
+  <gazebo reference="base_link">
+    <plugin name="imu_plugin" filename="libgazebo_ros_imu_sensor.so">
+      <ros>
+        <namespace>/</namespace>
+        <remapping>~/out:=/imu</remapping>
+      </ros>
+      <update_rate>50.0</update_rate>
+      <frame_name>base_link</frame_name>
+    </plugin>
+  </gazebo>
+
+  <!-- Odom publisher from Gazebo pose -->
+  <gazebo reference="base_link">
+    <plugin name="odom_plugin" filename="libgazebo_ros_p3d.so">
+      <ros>
+        <namespace>/</namespace>
+        <remapping>odom:=/odom</remapping>
+      </ros>
+      <body_name>base_link</body_name>
+      <frame_name>odom</frame_name>
+      <update_rate>30.0</update_rate>
+      <gaussian_noise>0.0</gaussian_noise>
+    </plugin>
+  </gazebo>
+
+  <!-- 2D LiDAR publisher -->
+  <gazebo reference="laser_link">
+    <sensor type="ray" name="lidar_sensor">
+      <pose>0 0 0 0 0 0</pose>
+      <update_rate>10.0</update_rate>
+      <ray>
+        <scan>
+          <horizontal>
+            <samples>360</samples>
+            <resolution>1</resolution>
+            <min_angle>-3.14159</min_angle>
+            <max_angle>3.14159</max_angle>
+          </horizontal>
+        </scan>
+        <range>
+          <min>0.10</min>
+          <max>12.0</max>
+          <resolution>0.01</resolution>
+        </range>
+      </ray>
+      <plugin name="lidar_plugin" filename="libgazebo_ros_ray_sensor.so">
+        <ros>
+          <namespace>/</namespace>
+          <remapping>~/out:=/scan</remapping>
+        </ros>
+        <frame_name>laser_link</frame_name>
+      </plugin>
+    </sensor>
+  </gazebo>
+</robot>

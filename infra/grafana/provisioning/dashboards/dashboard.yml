@@ -1,0 +1,12 @@
+apiVersion: 1
+
+providers:
+  - name: RobotTelemetryDashboards
+    orgId: 1
+    folder: Robotics
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 15
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards

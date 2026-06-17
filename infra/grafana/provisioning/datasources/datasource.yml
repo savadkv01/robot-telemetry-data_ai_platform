@@ -1,0 +1,25 @@
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    uid: prometheus_ds
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false
+
+  - name: PostgresRobotOps
+    uid: postgres_robot_ops
+    type: postgres
+    access: proxy
+    url: postgres:5432
+    user: robot
+    secureJsonData:
+      password: robot
+    jsonData:
+      database: robot_ops
+      sslmode: disable
+      postgresVersion: 1600
+      timescaledb: false
+    editable: false

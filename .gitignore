@@ -1,0 +1,50 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.env
+*.egg
+
+# Environment / secrets (never commit real credentials)
+.env.local
+.env.*.local
+secrets/
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+
+# Spark runtime artifacts
+metastore_db/
+spark-warehouse/
+derby.log
+checkpoints/
+spark-logs/
+
+# Delta Lake / Parquet data files (written at runtime by Spark)
+*.parquet
+*.delta
+_delta_log/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# ROS2 build artifacts
+robotics/ros2_ws/build/
+robotics/ros2_ws/install/
+robotics/ros2_ws/log/
+
+# Docker volumes / MinIO data written locally
+infra/minio_data/
+infra/postgres_data/
+infra/grafana_data/
+
+# IDE / OS
+.vscode/
+.DS_Store
+Thumbs.db
+*.swp
+*.swo

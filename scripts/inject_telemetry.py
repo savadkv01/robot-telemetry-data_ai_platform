@@ -1,19 +1,20 @@
 """Synthetic telemetry injector — pipeline testing.
 
-Produces robot.telemetry.v1 JSON events to Kafka, simulating 2 days of
-data for 2 robots with deliberately different health profiles so analytics
-queries return meaningful, distinguishable results:
+Produces robot.telemetry.v1 JSON events to Kafka, simulating data across
+a configurable date range for 2 robots with deliberately different health
+profiles so analytics queries return meaningful, distinguishable results:
 
-  robot-001  Healthy robot.   Battery 92 % → 82 %.  Speed 0.2–0.8 m/s.  ~2 % anomalies.
-  robot-002  Degrading robot. Battery 58 % → 22 %.  Speed 0.1–3.5 m/s. ~12 % anomalies.
+  robot-001  Healthy robot.   Battery 92 % → drains ~10 % per day.  Speed 0.2–0.8 m/s.  ~2 % anomalies.
+  robot-002  Degrading robot. Battery 92 % → drains ~45 % per day.  Speed 0.1–3.5 m/s. ~12 % anomalies.
 
-Total events: EVENTS_PER_ROBOT_PER_DAY × 2 robots × 2 days
-Default:       500 × 2 × 2 = 2 000 events.
+Total events: EVENTS_PER_ROBOT_PER_DAY × 2 robots × number_of_days
 
 Environment:
   KAFKA_BOOTSTRAP_SERVERS   default: kafka:29092
   KAFKA_TELEMETRY_TOPIC     default: robot.telemetry.v1
   EVENTS_PER_ROBOT_PER_DAY  default: 500
+  START_DATE                default: yesterday (YYYY-MM-DD)
+  END_DATE                  default: yesterday (YYYY-MM-DD)
 """
 
 import json
@@ -31,6 +32,18 @@ BOOTSTRAP = os.environ.get("KAFKA_BOOTSTRAP_SERVERS", "kafka:29092")
 TOPIC     = os.environ.get("KAFKA_TELEMETRY_TOPIC",   "robot.telemetry.v1")
 EVENTS_N  = int(os.environ.get("EVENTS_PER_ROBOT_PER_DAY", "500"))
 
+_today     = datetime.now(timezone.utc).date()
+_yesterday = _today - timedelta(days=1)
+
+def _parse_date(env_var: str, default) -> "date":
+    raw = os.environ.get(env_var, "")
+    if raw:
+        return datetime.strptime(raw, "%Y-%m-%d").date()
+    return default
+
+START_DATE = _parse_date("START_DATE", _yesterday)
+END_DATE   = _parse_date("END_DATE",   _yesterday)
+
 # Shift window: spread events evenly across an 8-hour shift
 SHIFT_SECONDS = 8 * 3600
 
@@ -43,7 +56,7 @@ ROBOTS = {
         anomaly_prob    = 0.02,     # 2 % of events are anomalous
     ),
     "robot-002": dict(
-        battery_start   = 0.58,
+        battery_start   = 0.92,    # starts healthy; degrades faster each day
         drain_per_event = 0.0009,   # ~45 % battery drop per day (failing)
         base_speed      = 0.8,
         speed_jitter    = 0.8,
@@ -137,8 +150,14 @@ def main() -> None:
 
     producer = _make_producer()
 
-    today = datetime.now(timezone.utc).date()
-    days  = [today - timedelta(days=1), today]
+    # Build list of dates in [START_DATE, END_DATE] inclusive
+    num_days = (END_DATE - START_DATE).days + 1
+    days = [START_DATE + timedelta(days=d) for d in range(num_days)]
+
+    print(f"Date range : {START_DATE}  →  {END_DATE}  ({num_days} day(s))")
+    print(f"Robots     : {list(ROBOTS.keys())}")
+    print(f"Events/robot/day: {EVENTS_N}")
+    print(f"Total events expected: {EVENTS_N * len(ROBOTS) * num_days}\n")
 
     interval_sec = SHIFT_SECONDS // EVENTS_N   # spacing between events
 
